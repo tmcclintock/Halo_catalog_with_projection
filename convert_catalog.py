@@ -4,6 +4,7 @@ import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
 from scipy import interpolate
 from scipy.integrate import quad
+import scipy.special as spc
 
 class Converter(object):
     def __init__(self, intrinsic_scatter, M_min=1.738e11, M_pivot = 4.266e12, alpha=0.77):
@@ -47,9 +48,9 @@ class Converter(object):
         return 1. + poisson_draw + noise
 
     #Functions for evaluating P(lambda_obs| lambda_true)
-    def interp_at_x(xbins,param,xout):
+    def interp_at_x(self, xbins, param, xout):
         """Dummy function for a InterpolatedUnivariateSpline"""
-        dummy=ius(xbins,param,k=1)
+        dummy=ius(xbins, param, k=1)
         return dummy(xout)
 
     def setup_splines(self):
@@ -58,7 +59,7 @@ class Converter(object):
         z_bins    = np.linspace(0.10,0.80,15)
         Nz        = len(z_bins)
         l_in_bins = np.array([1.,3.,5.,7.,9.,12.,15.55555534,20.,24.,26.11111069,30.,36.66666412,40.,47.22222137,57.77777863,68.33332825,78.8888855,89.44444275,100.,120.,140.,160.])
-        Nlam      = len(l_in_bins)
+        Nl        = len(l_in_bins)
 
         fit_lssmock=np.loadtxt('prj_params_LSSmock DESY1A_v1.1.txt')
         tau_prjmock_fit   = np.reshape(fit_lssmock[0,:], (Nz, Nl))
@@ -68,7 +69,7 @@ class Converter(object):
         fprj_prjmock_fit  = np.reshape(fit_lssmock[4,:], (Nz, Nl))
 
         # EXTRAPOLATION GRID - setting up splines
-        l_in_bins2=np.linspace(1, 300, 300)
+        l_in_bins2 = np.linspace(1, 300, 300)
         Nl2 = len(l_in_bins2)
         mu_interp  = np.zeros((Nz, Nl2))
         sig_interp = np.zeros((Nz, Nl2))
@@ -76,11 +77,11 @@ class Converter(object):
         fm_interp  = np.zeros((Nz, Nl2))
         fp_interp  = np.zeros((Nz, Nl2))
         for i in range(Nz):
-            mu_interp[i,:]  = interp_at_x(l_in_bins[:], mu_prjmock_fit[i,:], l_in_bins2)
-            sig_interp[i,:] = interp_at_x(l_in_bins[:], sig_prjmock_fit[i,:], l_in_bins2)
-            tau_interp[i,:] = interp_at_x(l_in_bins[:], tau_prjmock_fit[i,:], l_in_bins2)
-            fm_interp[i,:]  = interp_at_x(l_in_bins[:], fmask_prjmock_fit[i,:], l_in_bins2)
-            fp_interp[i,:]  = interp_at_x(l_in_bins[:], fprj_prjmock_fit[i,:], l_in_bins2)
+            mu_interp[i,:]  = self.interp_at_x(l_in_bins[:], mu_prjmock_fit[i,:], l_in_bins2)
+            sig_interp[i,:] = self.interp_at_x(l_in_bins[:], sig_prjmock_fit[i,:], l_in_bins2)
+            tau_interp[i,:] = self.interp_at_x(l_in_bins[:], tau_prjmock_fit[i,:], l_in_bins2)
+            fm_interp[i,:]  = self.interp_at_x(l_in_bins[:], fmask_prjmock_fit[i,:], l_in_bins2)
+            fp_interp[i,:]  = self.interp_at_x(l_in_bins[:], fprj_prjmock_fit[i,:], l_in_bins2)
             continue
         fm_interp[fm_interp<0.] = 0.
         fm_interp[fm_interp>1.] = 1.
@@ -124,23 +125,23 @@ class Converter(object):
         return pdf*0.5 # normalize
 
     #Routines for the CDF(lambda_obs | lambda_true), used for making draws
-    #def dummy(self, l_out, l_in, z_in):
-    #    """Wrapper for the probability."""
-    #    return self.P_lambda_obs_lambda_true(l_in, z_in, l_out)
 
     def CDF_lambda_obs_lambda_true(self, l_out, l_in, z_in):
+        def dummy(l_out):#l_in, z_in):
+            """Wrapper for the probability."""
+            return self.P_lambda_obs_lambda_true(l_in, z_in, l_out)
         if not self.is_setup: self.setup_splines()
-        cdf_temp = np.vectorize(quad)(self.P_lambda_obs_lambda_true, -10., l_out, args=(l_in, z_in), epsrel=1.0e-16, limit=50)
+        cdf_temp = np.vectorize(quad)(dummy, -10., l_out, epsrel=1.0e-16, limit=50)
         return cdf_temp[0]
 
     def setup_iCDF(self, l_in, z_in):
-        l_out_grid = np.linspace(-10,lin*3.0) # the grid should be between -inf and +inf
+        l_out_grid = np.linspace(-10, l_in*3.0) # the grid should be between -inf and +inf
         cdf4interp = self.CDF_lambda_obs_lambda_true(l_out_grid, l_in, z_in)
         # remove numerical error in the integration
         cdf4interp[cdf4interp<0.] = 0.
         cdf4interp[cdf4interp>1.] = 1.
         #inverse of the comulative distribution function used in generate_l_ob()
-        self.icdf=ius(cdf4interp,lout_grid, k=1)
+        self.icdf=ius(cdf4interp, l_out_grid, k=1)
         self.current_lambda_true = l_in
         self.current_z_true = z_in
         return
@@ -153,3 +154,30 @@ class Converter(object):
         if not np.fabs(z_in - self.current_z_true) < 1e-4: self.setup_iCDF(l_in, z_in)
         #It's setup, so we are safe
         return self.icdf(np.random.uniform(size=N_draws))
+
+if __name__ == "__main__":
+    scatter = 0.26
+    M_min=10.**11.0
+    alpha=0.704
+    M_pivot=10.**12.085
+    conv = Converter(scatter, M_min=M_min, M_pivot=M_pivot, alpha=alpha)
+
+    import matplotlib.pyplot as plt
+    Ndraws = 10000
+    Ms = np.ones(Ndraws) * 3e14 # a bunch of halos
+    ltr = conv.lambda_true_realization(Ms)
+
+    #plt.hist(ltr, density=True, bins=40)
+    #plt.xlabel(r"$\lambda_{tr}$")
+    #plt.ylabel(r"$P(\lambda_{tr} | M)$")
+    #plt.show()
+
+    lambda_true = 25.
+    z = 0.3
+    lobs = conv.Draw_from_CDF(Ndraws, lambda_true, z)
+    lob_arr = np.arange(-10., lambda_true*3., 0.1)
+    plt.plot(lob_arr, conv.P_lambda_obs_lambda_true(lambda_true, z, lob_arr))
+    plt.hist(lobs, density=True, bins=40)
+    plt.xlabel("$\lambda^{ob}$")
+    plt.ylabel("$P(\lambda^{ob}|\lambda^{tr}=%.1f,z=%.2f)$" %(lambda_true,z))
+    plt.show()
