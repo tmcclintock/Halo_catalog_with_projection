@@ -137,10 +137,18 @@ class Converter(object):
     def setup_iCDF(self, l_in, z_in):
         l_out_grid = np.linspace(-10, l_in*3.0) # the grid should be between -inf and +inf
         cdf4interp = self.CDF_lambda_obs_lambda_true(l_out_grid, l_in, z_in)
-        # remove numerical error in the integration
-        cdf4interp[cdf4interp<0.] = 0.
-        cdf4interp[cdf4interp>1.] = 1.
-        #inverse of the comulative distribution function used in generate_l_ob()
+        # Clip and fix the edges
+        cdf4interp = np.clip(cdf4interp, 0, 1)
+        #find right-most occurance of 0
+        rev = cdf4interp[::-1]
+        i0 = len(rev) - np.argmax(-rev) - 1
+        # Find the left-most occurance of 1
+        i1 = np.argmax(cdf4interp)
+        cdf4interp = cdf4interp[i0:i1+1]
+        l_out_grid = l_out_grid[i0:i1+1]
+        # inverse of the cumulative distribution function used in generate_l_ob()
+        self.cdf4interp = cdf4interp
+        self.l_out_grid = l_out_grid
         self.icdf=ius(cdf4interp, l_out_grid, k=1)
         self.current_lambda_true = l_in
         self.current_z_true = z_in
@@ -153,7 +161,7 @@ class Converter(object):
         if not np.fabs(l_in - self.current_lambda_true) < 1e-4: self.setup_iCDF(l_in, z_in)
         if not np.fabs(z_in - self.current_z_true) < 1e-4: self.setup_iCDF(l_in, z_in)
         #It's setup, so we are safe
-        return self.icdf(np.random.uniform(size=N_draws))
+        return self.icdf(np.random.uniform(low = np.min(self.cdf4interp), high = np.max(self.cdf4interp), size=N_draws))
 
 if __name__ == "__main__":
     scatter = 0.26
