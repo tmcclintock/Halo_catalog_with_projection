@@ -152,6 +152,7 @@ class Converter(object):
         self.icdf=ius(cdf4interp, l_out_grid, k=1)
         self.current_lambda_true = l_in
         self.current_z_true = z_in
+        self.icdf_is_setup = True
         return
 
     
